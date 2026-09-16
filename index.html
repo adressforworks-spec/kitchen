@@ -180,8 +180,12 @@
       <input type="text" id="f-date" placeholder="Например: Май 2026">
     </div>
     <div class="field">
-      <label for="f-photo">Ссылка на фото (необязательно)</label>
-      <input type="text" id="f-photo" placeholder="https://…">
+      <label for="f-photo-file">Фото проекта (необязательно)</label>
+      <input type="file" id="f-photo-file" accept="image/*">
+      <div id="photo-preview-wrap" style="display:none;margin-top:8px;">
+        <img id="photo-preview" style="max-width:100%;max-height:140px;border-radius:8px;display:block;">
+      </div>
+      <div id="photo-status" class="hint"></div>
     </div>
     <div class="field">
       <label for="f-desc">Описание</label>
@@ -221,6 +225,14 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.database();
+
+// ======================================================================
+// ВСТАВЬТЕ СЮДА СВОЙ БЕСПЛАТНЫЙ КЛЮЧ IMGBB (для загрузки фото файлом)
+// Получить: зайдите на api.imgbb.com → зарегистрируйтесь бесплатно (карта не нужна)
+// → скопируйте API key со страницы
+// ======================================================================
+const IMGBB_API_KEY = "ВАШ_IMGBB_KEY";
+
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js"></script>
@@ -233,6 +245,7 @@ let placingMode = false;
 let pendingLatLng = null;
 let pendingFeature = null;
 let isAdmin = false;
+let existingPhotoUrl = '';
 
 const tileLayer = new ol.layer.Tile({ source: new ol.source.OSM() });
 const vectorSource = new ol.source.Vector();
@@ -338,11 +351,20 @@ function openDetail(k){
   document.getElementById('f-address').value = k.address || '';
   document.getElementById('f-color').value = k.color || '';
   document.getElementById('f-date').value = k.date || '';
-  document.getElementById('f-photo').value = k.photo || '';
   document.getElementById('f-desc').value = k.desc || '';
   document.getElementById('form-error').textContent = '';
   document.getElementById('f-search-address').value = '';
   document.getElementById('search-results').innerHTML = '';
+  existingPhotoUrl = k.photo || '';
+  document.getElementById('f-photo-file').value = '';
+  document.getElementById('photo-status').textContent = '';
+  const previewWrap = document.getElementById('photo-preview-wrap');
+  if(existingPhotoUrl){
+    document.getElementById('photo-preview').src = existingPhotoUrl;
+    previewWrap.style.display = 'block';
+  }else{
+    previewWrap.style.display = 'none';
+  }
   pendingLatLng = (k.lat != null && k.lng != null) ? {lat:k.lat, lng:k.lng} : null;
   updateLocationStatus();
   document.getElementById('delete-row').style.display = isAdmin ? 'block' : 'none';
@@ -351,7 +373,7 @@ function openDetail(k){
 }
 
 function setFormEditable(editable){
-  ['f-name','f-address','f-color','f-date','f-photo','f-desc','place-btn','f-search-address','search-address-btn'].forEach(id => {
+  ['f-name','f-address','f-color','f-date','f-photo-file','f-desc','place-btn','f-search-address','search-address-btn'].forEach(id => {
     document.getElementById(id).disabled = !editable;
   });
   document.getElementById('save-btn').style.display = editable ? 'block' : 'none';
@@ -364,11 +386,14 @@ function openNew(){
   document.getElementById('f-address').value = '';
   document.getElementById('f-color').value = '';
   document.getElementById('f-date').value = '';
-  document.getElementById('f-photo').value = '';
   document.getElementById('f-desc').value = '';
   document.getElementById('form-error').textContent = '';
   document.getElementById('f-search-address').value = '';
   document.getElementById('search-results').innerHTML = '';
+  existingPhotoUrl = '';
+  document.getElementById('f-photo-file').value = '';
+  document.getElementById('photo-status').textContent = '';
+  document.getElementById('photo-preview-wrap').style.display = 'none';
   pendingLatLng = null;
   updateLocationStatus();
   document.getElementById('delete-row').style.display = 'none';
@@ -413,6 +438,38 @@ document.getElementById('place-cancel').addEventListener('click', () => {
   document.getElementById('modal-overlay').classList.add('open');
 });
 document.getElementById('place-btn').addEventListener('click', enterPlacingMode);
+
+document.getElementById('f-photo-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  const previewWrap = document.getElementById('photo-preview-wrap');
+  if(!file){
+    if(existingPhotoUrl){
+      document.getElementById('photo-preview').src = existingPhotoUrl;
+      previewWrap.style.display = 'block';
+    }else{
+      previewWrap.style.display = 'none';
+    }
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    document.getElementById('photo-preview').src = ev.target.result;
+    previewWrap.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+});
+
+async function uploadPhotoToImgbb(file){
+  const formData = new FormData();
+  formData.append('image', file);
+  const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+    method: 'POST',
+    body: formData
+  });
+  const json = await res.json();
+  if(!json.success) throw new Error(json.error?.message || 'Загрузка не удалась');
+  return json.data.url;
+}
 
 // ---------- Address search (Nominatim) ----------
 async function runAddressSearch(){
@@ -464,18 +521,36 @@ document.getElementById('search-input').addEventListener('input', (e) => {
 
 document.getElementById('save-btn').addEventListener('click', async () => {
   const errEl = document.getElementById('form-error');
+  const photoStatusEl = document.getElementById('photo-status');
   errEl.textContent = '';
+  photoStatusEl.textContent = '';
   if(!isAdmin){ errEl.textContent = 'Войдите как администратор.'; return; }
 
   const name = document.getElementById('f-name').value.trim();
   const address = document.getElementById('f-address').value.trim();
   const color = document.getElementById('f-color').value.trim();
   const date = document.getElementById('f-date').value.trim();
-  const photo = document.getElementById('f-photo').value.trim();
   const desc = document.getElementById('f-desc').value.trim();
+  const photoFile = document.getElementById('f-photo-file').files[0];
 
   if(!name || !address){ errEl.textContent = 'Укажите название и адрес.'; return; }
   if(!pendingLatLng){ errEl.textContent = 'Укажите расположение на карте кнопкой «Указать на карте».'; return; }
+
+  let photo = existingPhotoUrl || '';
+  if(photoFile){
+    photoStatusEl.textContent = 'Загружаем фото…';
+    document.getElementById('save-btn').disabled = true;
+    try{
+      photo = await uploadPhotoToImgbb(photoFile);
+    }catch(e){
+      document.getElementById('save-btn').disabled = false;
+      photoStatusEl.textContent = '';
+      errEl.textContent = 'Не удалось загрузить фото: ' + e.message;
+      return;
+    }
+    document.getElementById('save-btn').disabled = false;
+    photoStatusEl.textContent = '';
+  }
 
   const data = { name, address, color, date, photo, desc, lat: pendingLatLng.lat, lng: pendingLatLng.lng };
 
