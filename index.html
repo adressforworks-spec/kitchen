@@ -280,6 +280,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 // ======================================================================
 // ВСТАВЬТЕ СЮДА СВОЙ FIREBASE CONFIG (Project settings → General → Your apps)
@@ -299,11 +300,13 @@ const auth = firebase.auth();
 const db = firebase.database();
 
 // ======================================================================
-// ВСТАВЬТЕ СЮДА СВОЙ БЕСПЛАТНЫЙ КЛЮЧ IMGBB (для загрузки фото файлом)
-// Получить: зайдите на api.imgbb.com → зарегистрируйтесь бесплатно (карта не нужна)
-// → скопируйте API key со страницы
+// ВСТАВЬТЕ СЮДА ДАННЫЕ ВАШЕГО ПРОЕКТА SUPABASE (Settings → API)
 // ======================================================================
-const IMGBB_API_KEY = "ВАШ_IMGBB_KEY";
+const SUPABASE_URL = "ВАШ_SUPABASE_URL";       // например: https://xxxxx.supabase.co
+const SUPABASE_ANON_KEY = "ВАШ_SUPABASE_ANON_KEY";
+const PHOTOS_BUCKET = "kitchen-photos";         // имя приватного bucket, которое вы создадите
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 
 </script>
 
@@ -318,7 +321,8 @@ let pendingLatLng = null;
 let pendingFeature = null;
 let isAdmin = false;
 let existingPhotos = [];
-let viewPhotos = [];
+let viewPhotoPaths = [];
+let viewResolvedUrls = [];
 let viewIndex = 0;
 
 const tileLayer = new ol.layer.Tile({ source: new ol.source.OSM() });
@@ -424,8 +428,8 @@ function photosOf(k){
   return [];
 }
 
-function openView(k){
-  viewPhotos = photosOf(k);
+async function openView(k){
+  viewPhotoPaths = photosOf(k);
   viewIndex = 0;
   editingId = k.id;
   const hex = colorHexFrom(k.color);
@@ -443,8 +447,21 @@ function openView(k){
   document.getElementById('view-date').style.display = k.date ? 'block' : 'none';
   document.getElementById('view-desc').textContent = k.desc || '';
   document.getElementById('view-edit-btn').style.display = isAdmin ? 'block' : 'none';
-  renderCarousel();
+
+  viewResolvedUrls = [];
+  document.getElementById('carousel-img').style.display = 'none';
+  document.getElementById('carousel-placeholder').style.display = 'flex';
+  document.getElementById('carousel-placeholder').textContent = viewPhotoPaths.length ? 'Загрузка фото…' : 'Фото нет';
+  document.getElementById('carousel-prev').style.display = 'none';
+  document.getElementById('carousel-next').style.display = 'none';
+  document.getElementById('carousel-dots').innerHTML = '';
   document.getElementById('view-overlay').classList.add('open');
+
+  if(viewPhotoPaths.length){
+    const openedForId = k.id;
+    viewResolvedUrls = await Promise.all(viewPhotoPaths.map(resolvePhotoUrl));
+    if(editingId === openedForId) renderCarousel();
+  }
 }
 
 function renderCarousel(){
@@ -454,9 +471,10 @@ function renderCarousel(){
   const nextBtn = document.getElementById('carousel-next');
   const dotsEl = document.getElementById('carousel-dots');
 
-  if(viewPhotos.length === 0){
+  if(viewResolvedUrls.length === 0){
     img.style.display = 'none';
     placeholder.style.display = 'flex';
+    placeholder.textContent = 'Фото нет';
     prevBtn.style.display = 'none';
     nextBtn.style.display = 'none';
     dotsEl.innerHTML = '';
@@ -465,15 +483,15 @@ function renderCarousel(){
 
   placeholder.style.display = 'none';
   img.style.display = 'block';
-  img.src = viewPhotos[viewIndex];
+  img.src = viewResolvedUrls[viewIndex];
 
-  const multi = viewPhotos.length > 1;
+  const multi = viewResolvedUrls.length > 1;
   prevBtn.style.display = multi ? 'flex' : 'none';
   nextBtn.style.display = multi ? 'flex' : 'none';
 
   dotsEl.innerHTML = '';
   if(multi){
-    viewPhotos.forEach((_, i) => {
+    viewResolvedUrls.forEach((_, i) => {
       const dot = document.createElement('div');
       dot.className = 'dot' + (i === viewIndex ? ' active' : '');
       dot.addEventListener('click', () => { viewIndex = i; renderCarousel(); });
@@ -483,11 +501,11 @@ function renderCarousel(){
 }
 
 document.getElementById('carousel-prev').addEventListener('click', () => {
-  viewIndex = (viewIndex - 1 + viewPhotos.length) % viewPhotos.length;
+  viewIndex = (viewIndex - 1 + viewResolvedUrls.length) % viewResolvedUrls.length;
   renderCarousel();
 });
 document.getElementById('carousel-next').addEventListener('click', () => {
-  viewIndex = (viewIndex + 1) % viewPhotos.length;
+  viewIndex = (viewIndex + 1) % viewResolvedUrls.length;
   renderCarousel();
 });
 document.getElementById('view-close-btn').addEventListener('click', () => {
@@ -524,15 +542,27 @@ function openDetail(k){
   document.getElementById('modal-overlay').classList.add('open');
 }
 
-function renderPhotoThumbs(){
+async function renderPhotoThumbs(){
   const wrap = document.getElementById('photo-thumbs');
   wrap.innerHTML = '';
-  existingPhotos.forEach((url, i) => {
+  const paths = existingPhotos.slice();
+  const thumbs = paths.map((path, i) => {
     const thumb = document.createElement('div');
     thumb.className = 'photo-thumb';
-    thumb.innerHTML = `<img src="${url}">` + (isAdmin ? `<button type="button" class="remove-thumb" data-i="${i}">✕</button>` : '');
     wrap.appendChild(thumb);
+    return { thumb, path, i };
   });
+  for(const { thumb, path, i } of thumbs){
+    const url = await resolvePhotoUrl(path);
+    thumb.innerHTML = `<img src="${url}">` + (isAdmin ? `<button type="button" class="remove-thumb" data-i="${i}">✕</button>` : '');
+  }
+  wrap.querySelectorAll('.remove-thumb').forEach(btn => {
+    btn.addEventListener('click', () => {
+      existingPhotos.splice(parseInt(btn.dataset.i, 10), 1);
+      renderPhotoThumbs();
+    });
+  });
+}
   wrap.querySelectorAll('.remove-thumb').forEach(btn => {
     btn.addEventListener('click', () => {
       existingPhotos.splice(parseInt(btn.dataset.i, 10), 1);
@@ -613,16 +643,25 @@ document.getElementById('f-photo-file').addEventListener('change', (e) => {
   document.getElementById('photo-status').textContent = n ? `Выбрано новых фото: ${n}` : '';
 });
 
-async function uploadPhotoToImgbb(file){
-  const formData = new FormData();
-  formData.append('image', file);
-  const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-    method: 'POST',
-    body: formData
-  });
-  const json = await res.json();
-  if(!json.success) throw new Error(json.error?.message || 'Загрузка не удалась');
-  return json.data.url;
+async function uploadPhotoToSupabase(file){
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+  const path = `${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+  const { error } = await sb.storage.from(PHOTOS_BUCKET).upload(path, file);
+  if(error) throw new Error(error.message);
+  return path; // сохраняем путь, а не прямую ссылку — ссылку получаем каждый раз заново
+}
+
+async function getSignedUrl(path){
+  const { data, error } = await sb.storage.from(PHOTOS_BUCKET).createSignedUrl(path, 3600);
+  if(error){ console.error(error); return ''; }
+  return data.signedUrl;
+}
+
+// Старые записи могли хранить прямую ссылку (например, с ImgBB) — показываем как есть,
+// а новые (путь в Supabase Storage) — превращаем во временную подписанную ссылку.
+async function resolvePhotoUrl(pathOrUrl){
+  if(/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  return await getSignedUrl(pathOrUrl);
 }
 
 // ---------- Address search (Nominatim) ----------
@@ -696,7 +735,7 @@ document.getElementById('save-btn').addEventListener('click', async () => {
     try{
       for(let i = 0; i < photoFiles.length; i++){
         photoStatusEl.textContent = `Загружаем фото ${i + 1} из ${photoFiles.length}…`;
-        newUrls.push(await uploadPhotoToImgbb(photoFiles[i]));
+        newUrls.push(await uploadPhotoToSupabase(photoFiles[i]));
       }
     }catch(e){
       document.getElementById('save-btn').disabled = false;
