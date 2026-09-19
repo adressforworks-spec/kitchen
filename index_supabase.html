@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Карта кухонь</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --walnut: #3c2a1e;
+    --walnut-deep: #241812;
+    --cream: #f2ead9;
+    --sage: #7c8a6e;
+    --brass: #b8863b;
+    --line: rgba(60,42,30,0.14);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;font-family:'Manrope',sans-serif;color:var(--walnut-deep);}
+  #app{display:flex;height:100vh;width:100vw;overflow:hidden;position:relative;}
+
+  #sidebar{
+    width:380px;min-width:320px;background:var(--cream);
+    display:flex;flex-direction:column;border-right:1px solid var(--line);z-index:10;
+  }
+  header{padding:28px 26px 18px;border-bottom:1px solid var(--line);}
+  header h1{font-family:'Fraunces',serif;font-weight:600;font-size:28px;margin:0 0 6px;letter-spacing:-0.01em;}
+  header p{margin:0;font-size:14px;color:#6b5a49;line-height:1.5;}
+
+  #search-row{padding:16px 26px;border-bottom:1px solid var(--line);}
+  #search-row input{
+    width:100%;padding:10px 14px;border:1px solid var(--line);border-radius:8px;
+    font-family:'Manrope',sans-serif;font-size:14px;background:#fff;color:var(--walnut-deep);
+  }
+  #search-row input:focus{outline:2px solid var(--brass);outline-offset:1px;}
+
+  #list{flex:1;overflow-y:auto;padding:8px 0;}
+  .kitchen-card{padding:14px 26px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:12px;align-items:center;transition:background 0.15s ease;}
+  .kitchen-card:hover{background:rgba(184,134,59,0.08);}
+  .kitchen-card.active{background:rgba(184,134,59,0.14);}
+  .swatch{width:14px;height:14px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,0.15);}
+  .card-text h3{font-family:'Fraunces',serif;font-weight:500;font-size:15px;margin:0 0 3px;}
+  .card-text p{font-size:12px;color:#6b5a49;margin:0;}
+  #empty-state{padding:40px 26px;color:#8a7862;font-size:14px;line-height:1.6;}
+
+  footer{padding:14px 26px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px;}
+  .btn{padding:12px;border-radius:8px;border:none;font-family:'Manrope',sans-serif;font-weight:600;font-size:14px;cursor:pointer;}
+  .btn-primary{background:var(--walnut-deep);color:var(--cream);width:100%;}
+  .btn-primary:hover{background:var(--walnut);}
+  .btn-secondary{background:#eee5d5;color:var(--walnut-deep);width:100%;}
+  .btn-secondary:hover{background:#e2d6bf;}
+  .btn-danger{background:#fff;color:#a33;border:1px solid #d99;}
+  .btn-place{background:#eee5d5;color:var(--walnut-deep);width:100%;margin-bottom:4px;}
+  #admin-status{font-size:12px;color:#6b5a49;text-align:center;}
+
+  #map-wrap{flex:1;height:100%;position:relative;}
+  #map{width:100%;height:100%;}
+
+  #place-banner{
+    display:none;position:absolute;top:18px;left:50%;transform:translateX(-50%);
+    background:var(--walnut-deep);color:var(--cream);padding:12px 20px;border-radius:9px;
+    font-size:14px;font-weight:600;z-index:500;box-shadow:0 4px 16px rgba(0,0,0,0.25);
+    align-items:center;gap:14px;
+  }
+  #place-banner.open{display:flex;}
+  #place-banner button{background:var(--brass);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-family:'Manrope',sans-serif;font-weight:600;font-size:13px;cursor:pointer;}
+
+  .modal-overlay{
+    display:none;position:fixed;inset:0;background:rgba(36,24,18,0.55);
+    align-items:center;justify-content:center;z-index:1000;padding:20px;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal{background:#fff;border-radius:14px;padding:28px 30px;max-width:440px;width:100%;max-height:88vh;overflow-y:auto;}
+  .modal h2{font-family:'Fraunces',serif;font-weight:600;font-size:22px;margin:0 0 18px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:13px;font-weight:600;color:var(--walnut);margin-bottom:5px;}
+  .field input, .field textarea{
+    width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:7px;
+    font-family:'Manrope',sans-serif;font-size:14px;color:var(--walnut-deep);background:#faf8f3;
+  }
+  .field textarea{resize:vertical;min-height:60px;}
+  .field input:focus, .field textarea:focus{outline:2px solid var(--brass);outline-offset:1px;}
+  .modal-actions{display:flex;gap:10px;margin-top:20px;}
+  .modal-actions .btn{flex:1;}
+  #location-status{font-size:13px;margin-top:6px;padding:8px 10px;border-radius:6px;background:#faf3e6;color:#6b5a49;}
+  #location-status.set{background:rgba(124,138,110,0.14);color:var(--sage);font-weight:600;}
+  #search-results{margin-top:6px;border:1px solid var(--line);border-radius:7px;overflow:hidden;max-height:180px;overflow-y:auto;}
+  #search-results:empty{display:none;}
+  .search-result-item{padding:9px 12px;font-size:13px;color:var(--walnut-deep);cursor:pointer;border-bottom:1px solid var(--line);background:#fff;}
+  .search-result-item:last-child{border-bottom:none;}
+  .search-result-item:hover{background:rgba(184,134,59,0.1);}
+  .search-hint{padding:9px 12px;font-size:13px;color:#9a8a76;background:#fff;}
+  #form-error, #login-error, #register-error{font-size:13px;color:#a33;min-height:16px;margin-top:4px;}
+  .hint{font-size:12px;color:#8a7862;}
+  .link-row{text-align:center;font-size:13px;margin-top:10px;color:#6b5a49;}
+  .link-row a{color:var(--brass);cursor:pointer;font-weight:600;text-decoration:none;}
+
+  #photo-thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+  .photo-thumb{position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--line);}
+  .photo-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .photo-thumb .remove-thumb{
+    position:absolute;top:2px;right:2px;background:rgba(36,24,18,0.7);color:#fff;border:none;
+    width:18px;height:18px;border-radius:50%;font-size:11px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+
+  .view-modal{max-width:680px;padding:0;display:flex;flex-wrap:wrap;overflow:hidden;}
+  .view-photo{width:280px;flex:1 1 280px;display:flex;flex-direction:column;}
+  .carousel-frame{
+    position:relative;flex:1;min-height:220px;
+    background:var(--cream);display:flex;align-items:center;justify-content:center;
+  }
+  .carousel-img{width:100%;height:100%;object-fit:cover;display:block;}
+  .carousel-placeholder{
+    color:#fff;font-family:'Manrope',sans-serif;font-weight:600;font-size:14px;
+    display:flex;align-items:center;justify-content:center;width:100%;height:100%;
+  }
+  .carousel-arrow{
+    position:absolute;top:50%;transform:translateY(-50%);background:rgba(36,24,18,0.55);color:#fff;
+    border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .carousel-arrow.left{left:10px;}
+  .carousel-arrow.right{right:10px;}
+  .carousel-dots{display:flex;justify-content:center;gap:6px;padding:10px 0;background:#fff;}
+  .carousel-dots .dot{width:7px;height:7px;border-radius:50%;background:var(--line);cursor:pointer;}
+  .carousel-dots .dot.active{background:var(--brass);}
+  .view-info{flex:1 1 300px;padding:28px 30px;position:relative;}
+  .view-info .swatch-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .view-info .swatch-row .swatch{width:16px;height:16px;}
+  .view-info .swatch-row span:last-child{font-size:13px;font-weight:600;color:var(--sage);}
+  .view-info h2{font-family:'Fraunces',serif;font-weight:600;font-size:22px;margin:0 0 8px;}
+  .view-info .view-address, .view-info .view-date, .view-info .view-owner{font-size:14px;color:#6b5a49;margin:0 0 4px;}
+  .view-info .view-desc{font-size:14px;line-height:1.65;color:#4a3a2c;margin:14px 0 0;}
+  #view-close-btn{
+    position:absolute;top:16px;right:16px;background:var(--cream);border:none;
+    width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;color:var(--walnut-deep);
+    display:flex;align-items:center;justify-content:center;z-index:5;
+  }
+  #view-close-btn:hover{background:#e2d6bf;}
+
+  @media (max-width: 720px){
+    #app{flex-direction:column;}
+    #sidebar{width:100%;height:42%;min-width:0;border-right:none;border-bottom:1px solid var(--line);}
+    #map-wrap{height:58%;}
+    .view-modal{flex-direction:column;}
+    .view-photo{width:100%;}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="sidebar">
+    <header>
+      <h1>Карта кухонь</h1>
+      <p>Реализованные проекты — на карте. Нажмите на метку или карточку, чтобы посмотреть детали.</p>
+    </header>
+    <div id="search-row">
+      <input type="text" id="search-input" placeholder="Поиск по адресу или названию…">
+    </div>
+    <div id="list"></div>
+    <footer>
+      <button class="btn btn-primary" id="add-btn" style="display:none;">+ Добавить проект</button>
+      <button class="btn btn-secondary" id="login-btn">Войти</button>
+      <button class="btn btn-secondary" id="register-btn">Зарегистрироваться</button>
+      <button class="btn btn-secondary" id="logout-btn" style="display:none;">Выйти</button>
+      <div id="admin-status"></div>
+    </footer>
+  </div>
+  <div id="map-wrap">
+    <div id="place-banner">
+      <span>Кликните на карте, чтобы разместить метку</span>
+      <button id="place-cancel">Отмена</button>
+    </div>
+    <div id="map"></div>
+  </div>
+</div>
+
+<!-- Login modal -->
+<div class="modal-overlay" id="login-overlay">
+  <div class="modal">
+    <h2>Вход</h2>
+    <div class="field">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="field">
+      <label for="login-password">Пароль</label>
+      <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
+    </div>
+    <div id="login-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="login-cancel">Отмена</button>
+      <button class="btn btn-primary" id="login-submit">Войти</button>
+    </div>
+    <div class="link-row">Нет аккаунта? <a id="switch-to-register">Зарегистрироваться</a></div>
+  </div>
+</div>
+
+<!-- Register modal -->
+<div class="modal-overlay" id="register-overlay">
+  <div class="modal">
+    <h2>Регистрация</h2>
+    <div class="field">
+      <label for="register-email">Email</label>
+      <input type="email" id="register-email" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="field">
+      <label for="register-password">Пароль (минимум 6 символов)</label>
+      <input type="password" id="register-password" placeholder="Пароль" autocomplete="new-password">
+    </div>
+    <div id="register-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="register-cancel">Отмена</button>
+      <button class="btn btn-primary" id="register-submit">Зарегистрироваться</button>
+    </div>
+    <div class="link-row">Уже есть аккаунт? <a id="switch-to-login">Войти</a></div>
+  </div>
+</div>
+
+<!-- Add/Edit kitchen modal -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h2 id="modal-title">Новый проект</h2>
+    <div class="field">
+      <label for="f-name">Название / клиент</label>
+      <input type="text" id="f-name" placeholder="Например: Кухня для семьи Ивановых">
+    </div>
+    <div class="field">
+      <label for="f-address">Адрес (для подписи)</label>
+      <input type="text" id="f-address" placeholder="Город, улица, дом">
+    </div>
+    <div class="field">
+      <label for="f-color">Цвет кухни (название и/или #HEX)</label>
+      <input type="text" id="f-color" placeholder="Например: Терракотовый, #C1440E">
+    </div>
+    <div class="field">
+      <label for="f-search-address">Поиск адреса</label>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="f-search-address" placeholder="Например: Москва, ул. Тверская, 12" style="flex:1;">
+        <button type="button" class="btn btn-secondary" id="search-address-btn" style="flex:0 0 auto;width:auto;padding:9px 16px;">Найти</button>
+      </div>
+      <div id="search-results"></div>
+      <div class="hint" style="margin:8px 0 4px;">Или разместите метку вручную:</div>
+      <button type="button" class="btn btn-place" id="place-btn">Указать кликом на карте</button>
+      <div id="location-status">Метка ещё не размещена</div>
+    </div>
+    <div class="field">
+      <label for="f-date">Дата сдачи проекта</label>
+      <input type="text" id="f-date" placeholder="Например: Май 2026">
+    </div>
+    <div class="field">
+      <label for="f-owner-label">Ваше имя или компания (необязательно, будет видно на карточке)</label>
+      <input type="text" id="f-owner-label" placeholder="Например: Иван, Лемана ПРО">
+    </div>
+    <div class="field">
+      <label for="f-photo-file">Фото проекта (можно выбрать сразу несколько)</label>
+      <input type="file" id="f-photo-file" accept="image/*" multiple>
+      <div id="photo-thumbs"></div>
+      <div id="photo-status" class="hint"></div>
+    </div>
+    <div class="field">
+      <label for="f-desc">Описание</label>
+      <textarea id="f-desc" placeholder="Материалы, стиль, особенности проекта…"></textarea>
+    </div>
+    <div id="form-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="cancel-btn">Отмена</button>
+      <button class="btn btn-primary" id="save-btn">Сохранить</button>
+    </div>
+    <div id="delete-row" style="margin-top:10px;display:none;">
+      <button class="btn btn-danger" id="delete-btn" style="width:100%;">Удалить проект</button>
+    </div>
+  </div>
+</div>
+
+<!-- View modal (what visitors see when they click a marker) -->
+<div class="modal-overlay" id="view-overlay">
+  <div class="modal view-modal">
+    <div class="view-photo">
+      <div class="carousel-frame" id="carousel-frame">
+        <img class="carousel-img" id="carousel-img" style="display:none;">
+        <div class="carousel-placeholder" id="carousel-placeholder">Фото нет</div>
+        <button class="carousel-arrow left" id="carousel-prev" style="display:none;">‹</button>
+        <button class="carousel-arrow right" id="carousel-next" style="display:none;">›</button>
+      </div>
+      <div class="carousel-dots" id="carousel-dots"></div>
+    </div>
+    <div class="view-info">
+      <button id="view-close-btn">✕</button>
+      <div class="swatch-row" id="view-swatch-row" style="display:none;">
+        <span class="swatch" id="view-swatch"></span><span id="view-colorname"></span>
+      </div>
+      <h2 id="view-name"></h2>
+      <p class="view-address" id="view-address"></p>
+      <p class="view-date" id="view-date"></p>
+      <p class="view-owner" id="view-owner"></p>
+      <p class="view-desc" id="view-desc"></p>
+      <button class="btn btn-secondary" id="view-edit-btn" style="display:none;margin-top:16px;">Редактировать проект</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Supabase (Auth + Database + Storage) -->
+<!-- ============================================================ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://laqlsuxtdeqnvpqtzata.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhcWxzdXh0ZGVxbnZwcXR6YXRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4MDMyNDMsImV4cCI6MjEwNTM3OTI0M30.flc7IPwrxXE7JfHTaOsp0GDPmDvpFLWjoyENESF_dms";
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js"></script>
+<script>
+let kitchens = [];          // {id,name,address,color,date,desc,lat,lng,ownerId,ownerLabel}
+let photosCache = {};       // id -> [dataURL, ...] — фото подгружаются по требованию
+let features = {};
+let activeId = null;
+let editingId = null;
+let placingMode = false;
+let pendingLatLng = null;
+let pendingFeature = null;
+let currentUserId = null;
+let currentUserEmail = '';
+let existingPhotos = [];    // массив dataURL редактируемого проекта
+let viewPhotos = [];
+let viewIndex = 0;
+
+const tileLayer = new ol.layer.Tile({ source: new ol.source.OSM() });
+const vectorSource = new ol.source.Vector();
+const vectorLayer = new ol.layer.Vector({ source: vectorSource });
+
+const map = new ol.Map({
+  target: 'map',
+  layers: [tileLayer, vectorLayer],
+  view: new ol.View({ center: ol.proj.fromLonLat([55, 56.5]), zoom: 4 })
+});
+
+function colorHexFrom(colorField){
+  const match = (colorField || '').match(/#[0-9a-fA-F]{6}/);
+  return match ? match[0] : '#b8863b';
+}
+
+function styleFor(color, pending){
+  const dark = ['#f5f5f5','#e7dcc2','#ffffff'].includes(color.toLowerCase());
+  return new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: pending ? 10 : 9,
+      fill: new ol.style.Fill({ color: pending ? '#7c8a6e' : color }),
+      stroke: new ol.style.Stroke({ color: dark && !pending ? '#3c2a1e' : '#f2ead9', width: 2 })
+    })
+  });
+}
+
+map.on('click', (evt) => {
+  if(placingMode){
+    const lonlat = ol.proj.toLonLat(evt.coordinate);
+    pendingLatLng = { lat: lonlat[1], lng: lonlat[0] };
+    if(pendingFeature) vectorSource.removeFeature(pendingFeature);
+    pendingFeature = new ol.Feature({ geometry: new ol.geom.Point(evt.coordinate) });
+    pendingFeature.setStyle(styleFor('#7c8a6e', true));
+    vectorSource.addFeature(pendingFeature);
+    exitPlacingMode();
+    document.getElementById('modal-overlay').classList.add('open');
+    updateLocationStatus();
+    return;
+  }
+  const feature = map.forEachFeatureAtPixel(evt.pixel, f => f);
+  if(feature && feature.get('kitchenId') != null) selectKitchen(feature.get('kitchenId'));
+});
+map.on('pointermove', (evt) => {
+  const hit = map.hasFeatureAtPixel(evt.pixel);
+  map.getTargetElement().style.cursor = (hit || placingMode) ? 'pointer' : '';
+});
+
+// ---------- Список проектов (лёгкие данные, без фото — грузятся всегда) ----------
+async function startKitchensListener(){
+  const { data, error } = await db.from('kitchens').select('*').order('created_at', { ascending: true });
+  if(error){
+    console.error(error);
+    return;
+  }
+  kitchens = (data || []).map(v => ({
+    id: v.id,
+    name: v.name,
+    address: v.address,
+    color: v.color,
+    date: v.date,
+    desc: v.desc,
+    lat: v.lat,
+    lng: v.lng,
+    ownerId: v.owner_id,
+    ownerLabel: v.owner_label || ''
+  }));
+  renderAll(document.getElementById('search-input').value);
+}
+
+async function refreshKitchens(){
+  await startKitchensListener();
+}
+
+// ---------- Фото: сжимаются в браузере, хранятся внутри самой базы ----------
+function resizeAndCompress(file, maxDim, quality){
+  maxDim = maxDim || 1280;
+  quality = quality || 0.72;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Не удалось обработать изображение'));
+      img.onload = () => {
+        let { width, height } = img;
+        if(width > height && width > maxDim){ height = Math.round(height * maxDim / width); width = maxDim; }
+        else if(height >= width && height > maxDim){ width = Math.round(width * maxDim / height); height = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadPhotosFor(id){
+  if(photosCache[id]) return photosCache[id];
+
+  const { data, error } = await db
+    .from('kitchen_photos')
+    .select('photo_url')
+    .eq('kitchen_id', id)
+    .order('sort_order', { ascending: true });
+
+  if(error){
+    console.error(error);
+    photosCache[id] = [];
+    return [];
+  }
+
+  const arr = (data || []).map(x => x.photo_url).filter(Boolean);
+  photosCache[id] = arr;
+  return arr;
+}
+
+function photosOf(k){
+  return photosCache[k.id] || [];
+}
+
+function renderAll(filterText=''){
+  vectorSource.clear();
+  features = {};
+  const listEl = document.getElementById('list');
+  listEl.innerHTML = '';
+
+  const ft = filterText.trim().toLowerCase();
+  const filtered = kitchens.filter(k =>
+    !ft || (k.name||'').toLowerCase().includes(ft) || (k.address||'').toLowerCase().includes(ft)
+  );
+
+  if(filtered.length === 0){
+    listEl.innerHTML = '<div id="empty-state">Пока нет проектов. Войдите или зарегистрируйтесь, чтобы добавить первую кухню.</div>';
+  }
+
+  filtered.forEach(k => {
+    const hex = colorHexFrom(k.color);
+    if(k.lat != null && k.lng != null){
+      const feature = new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([k.lng, k.lat])) });
+      feature.set('kitchenId', k.id);
+      feature.setStyle(styleFor(hex, false));
+      vectorSource.addFeature(feature);
+      features[k.id] = feature;
+    }
+    const card = document.createElement('div');
+    card.className = 'kitchen-card' + (k.id === activeId ? ' active' : '');
+    card.innerHTML = `<span class="swatch" style="background:${hex}"></span>
+      <div class="card-text"><h3>${escapeHtml(k.name)}</h3><p>${escapeHtml(k.address)}</p></div>`;
+    card.addEventListener('click', () => selectKitchen(k.id));
+    listEl.appendChild(card);
+  });
+}
+
+function selectKitchen(id){
+  activeId = id;
+  const k = kitchens.find(x => x.id === id);
+  if(k && k.lat != null && k.lng != null){
+    map.getView().animate({ center: ol.proj.fromLonLat([k.lng, k.lat]), zoom: 13, duration: 500 });
+  }
+  renderAll(document.getElementById('search-input').value);
+  openView(k);
+}
+
+// ---------- Карточка просмотра ----------
+async function openView(k){
+  editingId = k.id;
+  const hex = colorHexFrom(k.color);
+  const swatchRow = document.getElementById('view-swatch-row');
+  if(k.color){
+    swatchRow.style.display = 'flex';
+    document.getElementById('view-swatch').style.background = hex;
+    document.getElementById('view-colorname').textContent = k.color;
+  }else{
+    swatchRow.style.display = 'none';
+  }
+  document.getElementById('view-name').textContent = k.name || '';
+  document.getElementById('view-address').textContent = k.address || '';
+  document.getElementById('view-date').textContent = k.date || '';
+  document.getElementById('view-date').style.display = k.date ? 'block' : 'none';
+  document.getElementById('view-owner').textContent = k.ownerLabel ? ('Добавил: ' + k.ownerLabel) : '';
+  document.getElementById('view-owner').style.display = k.ownerLabel ? 'block' : 'none';
+  document.getElementById('view-desc').textContent = k.desc || '';
+  document.getElementById('view-edit-btn').style.display = (currentUserId && k.ownerId === currentUserId) ? 'block' : 'none';
+
+  viewPhotos = [];
+  viewIndex = 0;
+  document.getElementById('carousel-img').style.display = 'none';
+  document.getElementById('carousel-placeholder').style.display = 'flex';
+  document.getElementById('carousel-placeholder').textContent = 'Загрузка фото…';
+  document.getElementById('carousel-prev').style.display = 'none';
+  document.getElementById('carousel-next').style.display = 'none';
+  document.getElementById('carousel-dots').innerHTML = '';
+  document.getElementById('view-overlay').classList.add('open');
+
+  const openedForId = k.id;
+  const photos = await loadPhotosFor(k.id);
+  if(editingId !== openedForId) return;
+  viewPhotos = photos;
+  renderCarousel();
+}
+
+function renderCarousel(){
+  const img = document.getElementById('carousel-img');
+  const placeholder = document.getElementById('carousel-placeholder');
+  const prevBtn = document.getElementById('carousel-prev');
+  const nextBtn = document.getElementById('carousel-next');
+  const dotsEl = document.getElementById('carousel-dots');
+
+  if(viewPhotos.length === 0){
+    img.style.display = 'none';
+    placeholder.style.display = 'flex';
+    placeholder.textContent = 'Фото нет';
+    prevBtn.style.display = 'none';
+    nextBtn.style.display = 'none';
+    dotsEl.innerHTML = '';
+    return;
+  }
+
+  placeholder.style.display = 'none';
+  img.style.display = 'block';
+  img.src = viewPhotos[viewIndex];
+
+  const multi = viewPhotos.length > 1;
+  prevBtn.style.display = multi ? 'flex' : 'none';
+  nextBtn.style.display = multi ? 'flex' : 'none';
+
+  dotsEl.innerHTML = '';
+  if(multi){
+    viewPhotos.forEach((_, i) => {
+      const dot = document.createElement('div');
+      dot.className = 'dot' + (i === viewIndex ? ' active' : '');
+      dot.addEventListener('click', () => { viewIndex = i; renderCarousel(); });
+      dotsEl.appendChild(dot);
+    });
+  }
+}
+
+document.getElementById('carousel-prev').addEventListener('click', () => {
+  viewIndex = (viewIndex - 1 + viewPhotos.length) % viewPhotos.length;
+  renderCarousel();
+});
+document.getElementById('carousel-next').addEventListener('click', () => {
+  viewIndex = (viewIndex + 1) % viewPhotos.length;
+  renderCarousel();
+});
+document.getElementById('view-close-btn').addEventListener('click', () => {
+  document.getElementById('view-overlay').classList.remove('open');
+});
+document.getElementById('view-overlay').addEventListener('click', (e) => {
+  if(e.target.id === 'view-overlay') document.getElementById('view-overlay').classList.remove('open');
+});
+document.getElementById('view-edit-btn').addEventListener('click', () => {
+  const k = kitchens.find(x => x.id === editingId);
+  document.getElementById('view-overlay').classList.remove('open');
+  openDetail(k);
+});
+
+// ---------- Форма добавления/редактирования ----------
+async function openDetail(k){
+  document.getElementById('modal-title').textContent = 'Проект';
+  editingId = k.id;
+  document.getElementById('f-name').value = k.name || '';
+  document.getElementById('f-address').value = k.address || '';
+  document.getElementById('f-color').value = k.color || '';
+  document.getElementById('f-date').value = k.date || '';
+  document.getElementById('f-owner-label').value = k.ownerLabel || '';
+  document.getElementById('f-desc').value = k.desc || '';
+  document.getElementById('form-error').textContent = '';
+  document.getElementById('f-search-address').value = '';
+  document.getElementById('search-results').innerHTML = '';
+  document.getElementById('f-photo-file').value = '';
+  document.getElementById('photo-status').textContent = '';
+  pendingLatLng = (k.lat != null && k.lng != null) ? {lat:k.lat, lng:k.lng} : null;
+  updateLocationStatus();
+
+  const canEdit = currentUserId && k.ownerId === currentUserId;
+  document.getElementById('delete-row').style.display = canEdit ? 'block' : 'none';
+  setFormEditable(canEdit);
+  document.getElementById('modal-overlay').classList.add('open');
+
+  document.getElementById('photo-thumbs').innerHTML = '<div class="hint">Загрузка фото…</div>';
+  existingPhotos = (await loadPhotosFor(k.id)).slice();
+  renderPhotoThumbs();
+}
+
+function renderPhotoThumbs(){
+  const wrap = document.getElementById('photo-thumbs');
+  const canEdit = !editingId || (currentUserId && (kitchens.find(x=>x.id===editingId)||{}).ownerId === currentUserId);
+  wrap.innerHTML = '';
+  existingPhotos.forEach((dataUrl, i) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'photo-thumb';
+    thumb.innerHTML = `<img src="${dataUrl}">` + (canEdit ? `<button type="button" class="remove-thumb" data-i="${i}">✕</button>` : '');
+    wrap.appendChild(thumb);
+  });
+  wrap.querySelectorAll('.remove-thumb').forEach(btn => {
+    btn.addEventListener('click', () => {
+      existingPhotos.splice(parseInt(btn.dataset.i, 10), 1);
+      renderPhotoThumbs();
+    });
+  });
+}
+
+function setFormEditable(editable){
+  ['f-name','f-address','f-color','f-date','f-owner-label','f-photo-file','f-desc','place-btn','f-search-address','search-address-btn'].forEach(id => {
+    document.getElementById(id).disabled = !editable;
+  });
+  document.getElementById('save-btn').style.display = editable ? 'block' : 'none';
+}
+
+function openNew(){
+  document.getElementById('modal-title').textContent = 'Новый проект';
+  editingId = null;
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-address').value = '';
+  document.getElementById('f-color').value = '';
+  document.getElementById('f-date').value = '';
+  document.getElementById('f-owner-label').value = '';
+  document.getElementById('f-desc').value = '';
+  document.getElementById('form-error').textContent = '';
+  document.getElementById('f-search-address').value = '';
+  document.getElementById('search-results').innerHTML = '';
+  document.getElementById('f-photo-file').value = '';
+  document.getElementById('photo-status').textContent = '';
+  existingPhotos = [];
+  renderPhotoThumbs();
+  pendingLatLng = null;
+  updateLocationStatus();
+  document.getElementById('delete-row').style.display = 'none';
+  setFormEditable(true);
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal(){
+  document.getElementById('modal-overlay').classList.remove('open');
+  exitPlacingMode();
+}
+
+function updateLocationStatus(){
+  const el = document.getElementById('location-status');
+  if(pendingLatLng){
+    el.textContent = `Метка размещена (${pendingLatLng.lat.toFixed(5)}, ${pendingLatLng.lng.toFixed(5)})`;
+    el.classList.add('set');
+  }else{
+    el.textContent = 'Метка ещё не размещена';
+    el.classList.remove('set');
+  }
+}
+
+function enterPlacingMode(){
+  placingMode = true;
+  document.getElementById('modal-overlay').classList.remove('open');
+  document.getElementById('place-banner').classList.add('open');
+  if(pendingFeature){ vectorSource.removeFeature(pendingFeature); pendingFeature = null; }
+  if(pendingLatLng){
+    pendingFeature = new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([pendingLatLng.lng, pendingLatLng.lat])) });
+    pendingFeature.setStyle(styleFor('#7c8a6e', true));
+    vectorSource.addFeature(pendingFeature);
+  }
+}
+function exitPlacingMode(){
+  placingMode = false;
+  document.getElementById('place-banner').classList.remove('open');
+}
+
+document.getElementById('place-cancel').addEventListener('click', () => {
+  exitPlacingMode();
+  document.getElementById('modal-overlay').classList.add('open');
+});
+document.getElementById('place-btn').addEventListener('click', enterPlacingMode);
+
+document.getElementById('f-photo-file').addEventListener('change', (e) => {
+  const n = e.target.files.length;
+  document.getElementById('photo-status').textContent = n ? `Выбрано новых фото: ${n}` : '';
+});
+
+// ---------- Поиск адреса (Nominatim) ----------
+async function runAddressSearch(){
+  const q = document.getElementById('f-search-address').value.trim();
+  const resultsEl = document.getElementById('search-results');
+  if(!q){ resultsEl.innerHTML = ''; return; }
+  resultsEl.innerHTML = '<div class="search-hint">Ищем…</div>';
+  try{
+    const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&accept-language=ru&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url);
+    const results = await res.json();
+    if(!results.length){
+      resultsEl.innerHTML = '<div class="search-hint">Ничего не найдено. Уточните адрес или разместите метку вручную.</div>';
+      return;
+    }
+    resultsEl.innerHTML = '';
+    results.forEach(r => {
+      const item = document.createElement('div');
+      item.className = 'search-result-item';
+      item.textContent = r.display_name;
+      item.addEventListener('click', () => {
+        pendingLatLng = { lat: parseFloat(r.lat), lng: parseFloat(r.lon) };
+        if(pendingFeature){ vectorSource.removeFeature(pendingFeature); pendingFeature = null; }
+        pendingFeature = new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([pendingLatLng.lng, pendingLatLng.lat])) });
+        pendingFeature.setStyle(styleFor('#7c8a6e', true));
+        vectorSource.addFeature(pendingFeature);
+        map.getView().animate({ center: ol.proj.fromLonLat([pendingLatLng.lng, pendingLatLng.lat]), zoom: 16, duration: 500 });
+        updateLocationStatus();
+        resultsEl.innerHTML = '';
+      });
+      resultsEl.appendChild(item);
+    });
+  }catch(e){
+    resultsEl.innerHTML = '<div class="search-hint">Ошибка поиска. Попробуйте ещё раз или разместите метку вручную.</div>';
+  }
+}
+document.getElementById('search-address-btn').addEventListener('click', runAddressSearch);
+document.getElementById('f-search-address').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){ e.preventDefault(); runAddressSearch(); }
+});
+document.getElementById('add-btn').addEventListener('click', openNew);
+document.getElementById('cancel-btn').addEventListener('click', closeModal);
+document.getElementById('modal-overlay').addEventListener('click', (e) => {
+  if(e.target.id === 'modal-overlay') closeModal();
+});
+document.getElementById('search-input').addEventListener('input', (e) => {
+  renderAll(e.target.value);
+});
+
+// ---------- Сохранение проекта ----------
+document.getElementById('save-btn').addEventListener('click', async () => {
+  const errEl = document.getElementById('form-error');
+  const photoStatusEl = document.getElementById('photo-status');
+  errEl.textContent = '';
+  photoStatusEl.textContent = '';
+  if(!currentUserId){ errEl.textContent = 'Войдите или зарегистрируйтесь.'; return; }
+
+  const name = document.getElementById('f-name').value.trim();
+  const address = document.getElementById('f-address').value.trim();
+  const color = document.getElementById('f-color').value.trim();
+  const date = document.getElementById('f-date').value.trim();
+  const ownerLabel = document.getElementById('f-owner-label').value.trim();
+  const desc = document.getElementById('f-desc').value.trim();
+  const photoFiles = Array.from(document.getElementById('f-photo-file').files);
+
+  if(!name || !address){ errEl.textContent = 'Укажите название и адрес.'; return; }
+  if(!pendingLatLng){ errEl.textContent = 'Укажите расположение на карте кнопкой «Указать на карте».'; return; }
+
+  document.getElementById('save-btn').disabled = true;
+
+  try{
+    const newDataUrls = [];
+    for(let i = 0; i < photoFiles.length; i++){
+      photoStatusEl.textContent = `Обрабатываем фото ${i + 1} из ${photoFiles.length}…`;
+      newDataUrls.push(await resizeAndCompress(photoFiles[i]));
+    }
+    photoStatusEl.textContent = '';
+    const finalPhotos = existingPhotos.concat(newDataUrls);
+
+    const record = {
+      name,
+      address,
+      color,
+      date,
+      owner_label: ownerLabel,
+      desc,
+      lat: pendingLatLng.lat,
+      lng: pendingLatLng.lng,
+      owner_id: currentUserId
+    };
+
+    let id = editingId;
+    if(id){
+      const { error } = await db.from('kitchens').update(record).eq('id', id);
+      if(error) throw error;
+    }else{
+      const { data, error } = await db.from('kitchens').insert(record).select('id').single();
+      if(error) throw error;
+      id = data.id;
+    }
+
+    await db.from('kitchen_photos').delete().eq('kitchen_id', id);
+    if(finalPhotos.length){
+      const photoRows = finalPhotos.map((photo_url, index) => ({
+        kitchen_id: id,
+        photo_url,
+        sort_order: index
+      }));
+      const { error } = await db.from('kitchen_photos').insert(photoRows);
+      if(error) throw error;
+    }
+
+    photosCache[id] = finalPhotos;
+    await refreshKitchens();
+
+    closeModal();
+  }catch(e){
+    errEl.textContent = 'Не удалось сохранить: ' + e.message;
+  }finally{
+    document.getElementById('save-btn').disabled = false;
+  }
+
+  if(pendingFeature){ vectorSource.removeFeature(pendingFeature); pendingFeature = null; }
+});
+
+document.getElementById('delete-btn').addEventListener('click', async () => {
+  const k = kitchens.find(x => x.id === editingId);
+  if(!k || !currentUserId || k.ownerId !== currentUserId) return;
+  if(!confirm('Удалить этот проект с карты?')) return;
+  try{
+    const { error } = await db.from('kitchens').delete().eq('id', editingId);
+    if(error) throw error;
+    delete photosCache[editingId];
+    await refreshKitchens();
+  }catch(e){
+    document.getElementById('form-error').textContent = 'Не удалось удалить: ' + e.message;
+    return;
+  }
+  if(pendingFeature){ vectorSource.removeFeature(pendingFeature); pendingFeature = null; }
+  closeModal();
+  activeId = null;
+});
+
+// ---------- Вход / регистрация (Firebase Auth) ----------
+function openLogin(){
+  document.getElementById('register-overlay').classList.remove('open');
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-error').textContent = '';
+  document.getElementById('login-overlay').classList.add('open');
+}
+function openRegister(){
+  document.getElementById('login-overlay').classList.remove('open');
+  document.getElementById('register-email').value = '';
+  document.getElementById('register-password').value = '';
+  document.getElementById('register-error').textContent = '';
+  document.getElementById('register-overlay').classList.add('open');
+}
+document.getElementById('login-btn').addEventListener('click', openLogin);
+document.getElementById('register-btn').addEventListener('click', openRegister);
+document.getElementById('switch-to-register').addEventListener('click', openRegister);
+document.getElementById('switch-to-login').addEventListener('click', openLogin);
+document.getElementById('login-cancel').addEventListener('click', () => document.getElementById('login-overlay').classList.remove('open'));
+document.getElementById('register-cancel').addEventListener('click', () => document.getElementById('register-overlay').classList.remove('open'));
+document.getElementById('login-overlay').addEventListener('click', (e) => { if(e.target.id === 'login-overlay') document.getElementById('login-overlay').classList.remove('open'); });
+document.getElementById('register-overlay').addEventListener('click', (e) => { if(e.target.id === 'register-overlay') document.getElementById('register-overlay').classList.remove('open'); });
+
+document.getElementById('login-submit').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  try{
+    const { error } = await db.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+    document.getElementById('login-overlay').classList.remove('open');
+  }catch(e){
+    errEl.textContent = 'Не удалось войти: проверьте email и пароль.';
+  }
+});
+document.getElementById('register-submit').addEventListener('click', async () => {
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value;
+  const errEl = document.getElementById('register-error');
+  errEl.textContent = '';
+  try{
+    const { error } = await db.auth.signUp({ email, password });
+    if(error) throw error;
+    document.getElementById('register-overlay').classList.remove('open');
+  }catch(e){
+    errEl.textContent = 'Не удалось зарегистрироваться: ' + (e.message || 'проверьте данные');
+  }
+});
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await db.auth.signOut();
+});
+
+db.auth.onAuthStateChange((event, session) => {
+  const user = session ? session.user : null;
+  currentUserId = user ? user.id : null;
+  currentUserEmail = user ? user.email : '';
+  document.getElementById('add-btn').style.display = user ? 'block' : 'none';
+  document.getElementById('login-btn').style.display = user ? 'none' : 'block';
+  document.getElementById('register-btn').style.display = user ? 'none' : 'block';
+  document.getElementById('logout-btn').style.display = user ? 'block' : 'none';
+  document.getElementById('admin-status').textContent = user ? ('Вы вошли как ' + currentUserEmail) : '';
+});
+
+(async () => {
+  const { data } = await db.auth.getSession();
+  const user = data.session ? data.session.user : null;
+  currentUserId = user ? user.id : null;
+  currentUserEmail = user ? user.email : '';
+  document.getElementById('add-btn').style.display = user ? 'block' : 'none';
+  document.getElementById('login-btn').style.display = user ? 'none' : 'block';
+  document.getElementById('register-btn').style.display = user ? 'none' : 'block';
+  document.getElementById('logout-btn').style.display = user ? 'block' : 'none';
+  document.getElementById('admin-status').textContent = user ? ('Вы вошли как ' + currentUserEmail) : '';
+  await startKitchensListener();
+})();
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
