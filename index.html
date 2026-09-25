@@ -39,6 +39,13 @@
   .kitchen-card{padding:14px 26px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:12px;align-items:center;transition:background 0.15s ease;}
   .kitchen-card:hover{background:rgba(184,134,59,0.08);}
   .kitchen-card.active{background:rgba(184,134,59,0.14);}
+  .btn-danger{
+    background:#9b2c2c !important;
+    color:#fff !important;
+    border-color:#9b2c2c !important;
+  }
+  .btn-danger:hover{background:#7f2323 !important;}
+  .btn-danger:disabled{opacity:0.55;cursor:not-allowed;}
   .swatch{width:14px;height:14px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,0.15);}
   .card-text h3{font-family:'Fraunces',serif;font-weight:500;font-size:15px;margin:0 0 3px;}
   .card-text p{font-size:12px;color:#6b5a49;margin:0;}
@@ -167,6 +174,7 @@
       <button class="btn btn-secondary" id="register-btn">Зарегистрироваться</button>
       <button class="btn btn-secondary" id="logout-btn" style="display:none;">Выйти</button>
       <button class="btn btn-secondary" id="import-btn" style="display:none;">Массовый импорт из файла</button>
+      <button class="btn btn-danger" id="delete-all-btn" style="display:none;">Удалить все кухни</button>
       <div id="admin-status"></div>
     </footer>
   </div>
@@ -340,6 +348,13 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.database();
+
+/*
+ * ВРЕМЕННАЯ АДМИН-КНОПКА.
+ * Укажите здесь email своего Firebase-аккаунта.
+ * Кнопка удаления всех кухонь будет показана только этому аккаунту.
+ */
+const ADMIN_EMAIL = "ВАШ_EMAIL_В_FIREBASE";
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js"></script>
@@ -921,7 +936,80 @@ auth.onAuthStateChanged((user) => {
   document.getElementById('register-btn').style.display = user ? 'none' : 'block';
   document.getElementById('logout-btn').style.display = user ? 'block' : 'none';
   document.getElementById('import-btn').style.display = user ? 'block' : 'none';
-  document.getElementById('admin-status').textContent = user ? ('Вы вошли как ' + currentUserEmail) : '';
+
+  const isAdmin = !!user && !!ADMIN_EMAIL &&
+    currentUserEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
+  document.getElementById('delete-all-btn').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('admin-status').textContent = user
+    ? ('Вы вошли как ' + currentUserEmail)
+    : '';
+});
+
+// ---------- Временное удаление всех кухонь ----------
+// Кнопка скрыта для всех аккаунтов, кроме ADMIN_EMAIL.
+// Перед удалением требуется явное подтверждение.
+document.getElementById('delete-all-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('delete-all-btn');
+
+  if(!currentUserId || currentUserEmail.toLowerCase() !== ADMIN_EMAIL.toLowerCase()){
+    alert('Доступ запрещён.');
+    return;
+  }
+
+  const total = kitchens.length;
+  if(total === 0){
+    alert('На сайте сейчас нет кухонь.');
+    return;
+  }
+
+  const confirmation = prompt(
+    `ВНИМАНИЕ!\n\nБудут удалены ВСЕ ${total} кухонь и их фотографии из Firebase.\n\n` +
+    `Это действие нельзя отменить.\n\nВведите УДАЛИТЬ для подтверждения:`
+  );
+
+  if(confirmation !== 'УДАЛИТЬ') return;
+
+  btn.disabled = true;
+  btn.textContent = 'Удаление…';
+
+  try{
+    const currentSnapshot = await db.ref('kitchens').once('value');
+    const currentVal = currentSnapshot.val() || {};
+    const ids = Object.keys(currentVal);
+
+    if(ids.length === 0){
+      alert('Кухонь уже нет.');
+      return;
+    }
+
+    let deleted = 0;
+    for(const id of ids){
+      await db.ref('kitchens/' + id).remove();
+      await db.ref('kitchenPhotos/' + id).remove();
+      deleted++;
+      btn.textContent = `Удаление… ${deleted}/${ids.length}`;
+    }
+
+    kitchens = [];
+    photosCache = {};
+    vectorSource.clear();
+    activeId = null;
+    editingId = null;
+    renderAll(document.getElementById('search-input').value);
+
+    alert(`Готово. Удалено кухонь: ${deleted}.`);
+  }catch(e){
+    console.error(e);
+    alert(
+      'Удаление остановлено из-за ошибки Firebase.\n\n' +
+      'Часть записей могла уже удалиться.\n\n' +
+      (e.message || 'Неизвестная ошибка')
+    );
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Удалить все кухни';
+  }
 });
 
 // ---------- Массовый импорт (разовый инструмент) ----------
